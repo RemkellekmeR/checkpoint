@@ -1,0 +1,13 @@
+{
+  "text": "HR CASE · DEMO-118\n\nPlease investigate why the benefits portal returns ACCESS_DENIED after sign-in. The issue began on Monday after the department transfer.\n\nEmployee: Alex Chen, employee EMP-90214. Email: alex.chen@example.com. Date of birth: 12 March 1988.\n\nThe original form also states a medical condition of asthma and bank account 000123456789. These details were included in the employee's message; they are unrelated to the sign-in failure.\n\nHR confirmed the employee is active. IT needs to check group membership and the benefits application entitlement. Do not change the payroll record.",
+  "entities": {
+    "person": "Full names of people",
+    "email": "Email addresses",
+    "date_of_birth": "Birth dates",
+    "medical": "Medical conditions or health information",
+    "bank_account": "Bank account numbers",
+    "employee_id": "Employee identifiers such as EMP-90214"
+  },
+  "anonymize": "replace",
+  "threshold": 0.5
+}

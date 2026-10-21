@@ -1,0 +1,68 @@
+{
+  "model": "clocked-1.0",
+  "entities": [
+    {
+      "type": "person",
+      "value": "Alex Chen",
+      "start": 168,
+      "end": 177,
+      "confidence": 1,
+      "source": "model"
+    },
+    {
+      "type": "employee_id",
+      "value": "EMP-90214",
+      "start": 188,
+      "end": 197,
+      "confidence": 1,
+      "source": "model"
+    },
+    {
+      "type": "email",
+      "value": "alex.chen@example.com",
+      "start": 206,
+      "end": 227,
+      "confidence": 1,
+      "source": "model"
+    },
+    {
+      "type": "date_of_birth",
+      "value": "12 March 1988",
+      "start": 244,
+      "end": 257,
+      "confidence": 1,
+      "source": "model"
+    },
+    {
+      "type": "medical",
+      "value": "asthma",
+      "start": 313,
+      "end": 319,
+      "confidence": 1,
+      "source": "model"
+    },
+    {
+      "type": "bank_account",
+      "value": "000123456789",
+      "start": 337,
+      "end": 349,
+      "confidence": 1,
+      "source": "model"
+    }
+  ],
+  "counts": {
+    "person": 1,
+    "employee_id": 1,
+    "email": 1,
+    "date_of_birth": 1,
+    "medical": 1,
+    "bank_account": 1
+  },
+  "threshold": 0.5,
+  "instructions_used": "default",
+  "anonymized_text": "HR CASE · DEMO-118\n\nPlease investigate why the benefits portal returns ACCESS_DENIED after sign-in. The issue began on Monday after the department transfer.\n\nEmployee: <PERSON>, employee <EMPLOYEE_ID>. Email: <EMAIL>. Date of birth: <DATE_OF_BIRTH>.\n\nThe original form also states a medical condition of <MEDICAL> and bank account <BANK_ACCOUNT>. These details were included in the employee's message; they are unrelated to the sign-in failure.\n\nHR confirmed the employee is active. IT needs to check group membership and the benefits application entitlement. Do not change the payroll record.",
+  "timing": {
+    "read_ms": 175,
+    "total_ms": 176
+  }
+}
