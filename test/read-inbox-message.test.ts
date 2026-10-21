@@ -45,7 +45,7 @@ test('uncertain probability holds the message and withholds its content', async 
   assert.equal(out.action, 'hold');
   assert.ok(!out.text.includes('Outlook'));
   assert.equal(d.holds.list().length, 1);
-  assert.equal(d.holds.list()[0]!.status, 'open');
+  assert.equal(d.holds.list()[0]!.status, 'pending');
 });
 
 test('Guard failure fails open for this read tool with a visible UNSCREENED banner', async () => {

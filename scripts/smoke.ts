@@ -145,8 +145,8 @@ try {
     ok(`MCP client connected: session ${transport.sessionId}, protocol ${client.getNegotiatedProtocolVersion()}`);
 
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name), ['read_inbox_message']);
-    ok('tools/list -> [read_inbox_message]');
+    assert.deepEqual(tools.map((t) => t.name), ['read_inbox_message', 'check_hold']);
+    ok(`tools/list -> [${tools.map((t) => t.name).join(', ')}] (no approve tool)`);
 
     const benign = await client.callTool({ name: 'read_inbox_message', arguments: { message_id: 'msg-1001' } });
     assert.equal((benign.structuredContent as any).action, 'allow');
@@ -166,6 +166,11 @@ try {
     assert.ok(!piiText.includes('dana.okafor@example.com') && !piiText.includes('503-555-0187'));
     assert.match(piiText, /<EMAIL>/);
     ok(`read_inbox_message msg-1004 -> PII replaced by placeholders (${JSON.stringify((pii.structuredContent as any).pii_counts)})`);
+
+    const missing = await client.callTool({ name: 'check_hold', arguments: { hold_id: 'hold-00000000' } });
+    assert.equal(missing.isError, true);
+    assert.equal((missing.structuredContent as any).status, 'not_found');
+    ok('check_hold unknown id -> not_found error');
 
     await transport.terminateSession();
     await client.close();

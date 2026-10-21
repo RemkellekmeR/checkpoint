@@ -7,6 +7,7 @@ import { HoldQueue } from './holds.ts';
 import { loadInbox, type InboxMessage } from './inbox.ts';
 import type { GuardPolicy } from './policy.ts';
 import type { Protect } from './protect/types.ts';
+import { checkHold, checkHoldInput } from './tools/check-hold.ts';
 import { readInboxMessage, readInboxMessageInput } from './tools/read-inbox-message.ts';
 
 /** The only MCP protocol revision this server negotiates. */
@@ -63,6 +64,21 @@ export function buildMcpServer(deps: {
         structuredContent: out.structured,
         isError: out.isError,
       };
+    },
+  );
+
+  server.registerTool(
+    'check_hold',
+    {
+      title: 'Check hold',
+      description:
+        'Look up a hold by id and get its status (pending, approved or denied). Read-only: holds are decided by a human reviewer, never by the agent.',
+      inputSchema: checkHoldInput,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ hold_id }) => {
+      const out = checkHold(deps.holds, hold_id);
+      return { content: [{ type: 'text', text: out.text }], structuredContent: out.structured, isError: out.isError };
     },
   );
 
