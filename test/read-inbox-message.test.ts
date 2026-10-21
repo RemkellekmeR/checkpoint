@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { OfflineStubGuard, type Guard } from '../src/guard/index.ts';
 import { HoldQueue } from '../src/holds.ts';
 import { loadInbox } from '../src/inbox.ts';
+import { OfflineStubProtect, type Protect } from '../src/protect/index.ts';
 import { readInboxMessage } from '../src/tools/read-inbox-message.ts';
 
 const messages = loadInbox();
-const deps = (guard: Guard) => ({ guard, holds: new HoldQueue(), messages });
+const stubProtect = new OfflineStubProtect();
+const deps = (guard: Guard, protect: Protect = stubProtect) => ({ guard, protect, holds: new HoldQueue(), messages });
 
 test('benign message is allowed and labeled as screened by the offline stub, not Clocked', async () => {
   const out = await readInboxMessage(deps(new OfflineStubGuard()), 'msg-1001');
@@ -55,10 +57,56 @@ test('Guard failure fails open for this read tool with a visible UNSCREENED bann
   };
   const out = await readInboxMessage(deps(guard), 'msg-1001');
   assert.equal(out.action, 'unscreened');
-  assert.match(out.text, /^\[UNSCREENED: Guard request failed/);
+  assert.match(out.text, /\[UNSCREENED: Guard request failed/);
+  assert.ok(!out.text.includes('priya.nair@example.com'), 'Protect still runs when Guard fails');
 });
 
 test('unknown id is an error result', async () => {
   const out = await readInboxMessage(deps(new OfflineStubGuard()), 'msg-9999');
   assert.equal(out.isError, true);
+});
+
+test('Protect runs on every shown result: the agent sees placeholders, never the original personal data', async () => {
+  const out = await readInboxMessage(deps(new OfflineStubGuard()), 'msg-1004');
+  assert.equal(out.action, 'allow');
+  for (const raw of ['dana.okafor@example.com', 'EMP-48213', '10.20.30.41', '503-555-0187']) assert.ok(!out.text.includes(raw), raw);
+  assert.match(out.text, /From: <EMAIL>/);
+  assert.match(out.text, /employee <EMPLOYEE_ID> and my laptop is on <IP_ADDRESS>/);
+  assert.match(out.text, /call me on <PHONE>\. Thanks! 🙂 Dana/);
+  assert.deepEqual(out.structured.pii_counts, { email: 1, phone: 1, ip_address: 1, employee_id: 1 });
+  assert.match(out.text, /OFFLINE STUB guard and protect/);
+  assert.ok(!JSON.stringify(out.structured).includes('dana.okafor'), 'structured output carries counts, not values');
+});
+
+test('Protect also runs on the remainder of a cut message', async () => {
+  const out = await readInboxMessage(deps(new OfflineStubGuard()), 'msg-1002');
+  assert.equal(out.action, 'cut');
+  assert.ok(!out.text.includes('facilities-noreply@vendor.example.org'));
+  assert.ok(!out.text.includes('cfo@example.com'));
+});
+
+test('Protect failure withholds the content (fails closed) instead of showing unscreened personal data', async () => {
+  const broken: Protect = {
+    engine: 'clocked',
+    anonymize: async () => {
+      throw new Error('simulated 503');
+    },
+  };
+  const out = await readInboxMessage(deps(new OfflineStubGuard(), broken), 'msg-1004');
+  assert.equal(out.action, 'withheld');
+  assert.equal(out.isError, true);
+  assert.ok(!out.text.includes('Dana'));
+  assert.ok(!out.text.includes('VPN'));
+});
+
+test('held messages are not sent to Protect at all', async () => {
+  let called = 0;
+  const counting: Protect = { engine: 'clocked', anonymize: async (r) => (called++, stubProtect.anonymize(r)) };
+  const guard: Guard = {
+    engine: 'clocked',
+    screen: async () => ({ engine: 'clocked', verdict: 'benign', injection: 0.5, threshold: 0.5, category: 'benign', evidence: [] }),
+  };
+  const out = await readInboxMessage(deps(guard, counting), 'msg-1004');
+  assert.equal(out.action, 'hold');
+  assert.equal(called, 0);
 });

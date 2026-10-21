@@ -28,7 +28,7 @@ const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 const mcpUrl = `${base}/mcp`;
 
-const env: NodeJS.ProcessEnv = { ...process.env, CHECKPOINT_PORT: String(port), CHECKPOINT_HOST: '127.0.0.1', CHECKPOINT_GUARD: 'offline-stub' };
+const env: NodeJS.ProcessEnv = { ...process.env, CHECKPOINT_PORT: String(port), CHECKPOINT_HOST: '127.0.0.1', CHECKPOINT_GUARD: 'offline-stub', CHECKPOINT_PROTECT: 'offline-stub' };
 delete env.CLOCKED_API_KEY; // the smoke test never calls Clocked
 const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let logs = '';
@@ -72,6 +72,7 @@ try {
     await new Promise((r) => setTimeout(r, 50));
   }
   assert.match(logs, /OFFLINE STUB guard/);
+  assert.match(logs, /OFFLINE STUB protect/);
   console.log(`checkpoint smoke: server on ${mcpUrl}`);
 
   // 1. Bad Origin is rejected before any MCP handling.
@@ -159,6 +160,12 @@ try {
     assert.ok(!/ignore all previous instructions/i.test(text));
     assert.ok(text.includes('FAC-3307. 🙏'));
     ok(`read_inbox_message msg-1002 -> cut (${sc.cut_spans.length} span(s) removed, emoji intact)`);
+
+    const pii = await client.callTool({ name: 'read_inbox_message', arguments: { message_id: 'msg-1004' } });
+    const piiText = (pii.content as { type: string; text: string }[])[0]!.text;
+    assert.ok(!piiText.includes('dana.okafor@example.com') && !piiText.includes('503-555-0187'));
+    assert.match(piiText, /<EMAIL>/);
+    ok(`read_inbox_message msg-1004 -> PII replaced by placeholders (${JSON.stringify((pii.structuredContent as any).pii_counts)})`);
 
     await transport.terminateSession();
     await client.close();

@@ -21,6 +21,13 @@
       "subject": "Is this email a phishing attempt?",
       "received": "2026-10-21T09:05:00-07:00",
       "body": "Hey, I got an email that told me to wire money to a new supplier account and to keep it secret from finance. It felt off, so I didn't click anything. Should I forward it to security? — Marco"
+    },
+    {
+      "id": "msg-1004",
+      "from": "dana.okafor@example.com",
+      "subject": "VPN drops every 20 minutes",
+      "received": "2026-10-21T09:31:00-07:00",
+      "body": "Hello, since yesterday my VPN disconnects about every 20 minutes. I'm employee EMP-48213 and my laptop is on 10.20.30.41 when I'm in the office. If it's easier, call me on 503-555-0187. Thanks! 🙂 Dana"
     }
   ]
 }

@@ -6,6 +6,7 @@ import type { Guard } from './guard/types.ts';
 import { HoldQueue } from './holds.ts';
 import { loadInbox, type InboxMessage } from './inbox.ts';
 import type { GuardPolicy } from './policy.ts';
+import type { Protect } from './protect/types.ts';
 import { readInboxMessage, readInboxMessageInput } from './tools/read-inbox-message.ts';
 
 /** The only MCP protocol revision this server negotiates. */
@@ -20,6 +21,7 @@ const MAX_BODY_BYTES = 1024 * 1024;
 
 export interface CheckpointOptions {
   guard: Guard;
+  protect: Protect;
   /** Origin hostnames allowed to call /mcp; a request with any other Origin gets 403. */
   allowedOrigins: string[];
   /** Host header values allowed (DNS rebinding protection). Defaults to loopback names. */
@@ -30,6 +32,7 @@ export interface CheckpointOptions {
 
 export function buildMcpServer(deps: {
   guard: Guard;
+  protect: Protect;
   holds: HoldQueue;
   messages: readonly InboxMessage[];
   policy?: GuardPolicy;
@@ -49,7 +52,7 @@ export function buildMcpServer(deps: {
     {
       title: 'Read inbox message',
       description:
-        'Read one message from the service-desk inbox. The content is screened by Guard (prompt injection): it may be returned as is, returned with injection spans cut out, or held for human review.',
+        'Read one message from the service-desk inbox. The content is screened by Guard (prompt injection): it may be returned as is, returned with injection spans cut out, or held for human review. Personal data is replaced by typed placeholders such as <EMAIL> (Protect).',
       inputSchema: readInboxMessageInput,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
@@ -151,7 +154,7 @@ export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
-      const mcp = buildMcpServer({ guard: opts.guard, holds, messages, ...(opts.policy ? { policy: opts.policy } : {}) });
+      const mcp = buildMcpServer({ guard: opts.guard, protect: opts.protect, holds, messages, ...(opts.policy ? { policy: opts.policy } : {}) });
       await mcp.connect(transport);
       await transport.handleRequest(req, res, body);
       return;
