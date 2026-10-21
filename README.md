@@ -12,7 +12,73 @@ Checkpoint is an MCP server that sits between an MCP client (Claude Desktop, VS 
 
 Guard and Inspect are detectors, not enforcement boundaries, and a benign verdict is not execution authorization. Checkpoint keeps least-privilege tool design and human approval in place; Clocked reduces risk, it does not replace those controls.
 
-> Status: early skeleton (Oct 21, 2026). See the commit history for what exists so far.
+> Status: early skeleton (Oct 21, 2026). Guard gates one tool today; Protect and Inspect are next. See the commit history.
+
+## What works today
+
+- **MCP Streamable HTTP server** on a single endpoint, `POST/GET/DELETE /mcp`, protocol revision `2025-11-25`.
+  - `Origin` allowlist: a request whose `Origin` is not on `CHECKPOINT_ALLOWED_ORIGINS` gets `403` before any MCP handling. `Host` is checked against loopback names too (DNS rebinding).
+  - Stateful sessions: `initialize` returns an `MCP-Session-Id`; other requests without it get `400`, unknown or terminated sessions get `404`; an unsupported `MCP-Protocol-Version` gets `400`.
+- **One tool, `read_inbox_message`**, over a synthetic service-desk inbox (`fixtures/inbox.json`; fictional people, `example.com`). Every result is screened by Guard (`source: "content"`) and the verdict decides what the agent gets:
+  - **allow**: benign, outside the uncertain band.
+  - **cut**: `verdict = injection`, severity high/critical, with evidence: the evidence spans are removed using Clocked's offsets and the rest is wrapped in a quarantine notice.
+  - **hold**: injection probability inside the review band (0.35 to 0.65 to start), a lower-severity injection, or a high-severity verdict with no evidence to cut. The content is withheld and a hold id is returned (in-memory queue for now).
+  - **unscreened**: Guard failed (timeout, 5xx after the SDK's retries, 402). Read tools fail open with a visible banner; write/execute tools will fail closed.
+- **Offsets are Unicode code points.** Clocked counts characters, not UTF-16 units, so spans are cut with `src/unicode.ts` (`Array.from`), never `String.slice`. Tests cover emoji and astral characters.
+
+## Real vs. stub
+
+Guard is an interface (`src/guard/types.ts`) with two implementations:
+
+| Implementation | When | What it is |
+| --- | --- | --- |
+| `ClockedGuard` (`src/guard/clocked.ts`) | `CLOCKED_API_KEY` is set | The real Clocked `/injection` endpoint via `clocked-sdk` |
+| `OfflineStubGuard` (`src/guard/offline-stub.ts`) | `CHECKPOINT_GUARD=offline-stub` and no key | **A keyword heuristic for local tests only. Not Clocked, not real screening.** Every result it touches is labeled `UNSCREENED` / `engine: "offline-stub"`. |
+
+With neither set, the server refuses to start rather than run unscreened.
+
+## Quick start
+
+Requires Node.js 20+ (developed on 26) and gitleaks for commits.
+
+```sh
+git config core.hooksPath .githooks   # secret scan on every commit (see below)
+npm ci
+npm run check                          # typecheck + unit tests + smoke test (offline stub, no network)
+
+# Run the server locally without Clocked (offline stub, for development only):
+CHECKPOINT_GUARD=offline-stub npm start
+
+# With Clocked (once you have a key): copy .env.example to .env, set CLOCKED_API_KEY, then
+node --env-file=.env --import tsx src/main.ts
+```
+
+The server listens on `http://127.0.0.1:3333/mcp`. Point any Streamable HTTP MCP client (for example MCP Inspector) at it.
+
+| Script | What it does |
+| --- | --- |
+| `npm run typecheck` | `tsc --noEmit` |
+| `npm test` | Unit tests (`node --test`): code point spans, Guard mapping and policy, the tool |
+| `npm run smoke` | Starts the server process and checks Origin 403, initialize, sessions, `tools/list`, `read_inbox_message` |
+| `npm run record:clocked` | Records raw `/injection`, `/pii`, `/script` responses for the docs examples into `fixtures/recorded/` (needs a key and `--yes`; spends credits) |
+
+## Pinned dependencies
+
+| Package | Version |
+| --- | --- |
+| `clocked-sdk` | 0.6.0 |
+| `@modelcontextprotocol/server` | 2.3.1 |
+| `@modelcontextprotocol/node` | 2.1.1 |
+| `@modelcontextprotocol/client` (dev, smoke test) | 2.3.1 |
+| `zod` | 4.6.7 |
+
+All versions are exact (`save-exact`), and `package-lock.json` is committed.
+
+## Fixtures
+
+- `fixtures/docs/`: request bodies and recorded responses from Clocked's public docs (Guard, Protect, Inspect examples).
+- `fixtures/recorded/`: our own raw responses, written by `scripts/record-clocked.mjs` (empty until a key exists).
+- `fixtures/inbox.json`: synthetic inbox. One message carries an obvious prompt-injection payload surrounded by emoji and astral letters.
 
 ## Secret scanning (do this first)
 
