@@ -10,7 +10,7 @@ import type { Guard, GuardEvidence, GuardRequest, GuardVerdict } from './types.t
  * server marks tool output screened by it as UNSCREENED.
  */
 const PATTERNS: readonly { re: RegExp; category: string }[] = [
-  { re: /ignore (?:all |any )?(?:previous|prior|earlier|the above) instructions[^.\n]*/gi, category: 'instruction override' },
+  { re: /ignore (?:all |any )?(?:previous|prior|earlier|the above) instructions[^\n]*/gi, category: 'instruction override' },
   { re: /disregard (?:your|the) (?:policy|policies|rules|instructions)[^.\n]*/gi, category: 'instruction override' },
   { re: /do not (?:mention|tell|reveal) (?:this|the user)[^.\n]*/gi, category: 'social engineering' },
   { re: /(?:reveal|print|send) (?:your|the) (?:system prompt|api key|credentials)[^.\n]*/gi, category: 'system prompt or secret extraction' },
