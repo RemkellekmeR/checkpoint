@@ -1,0 +1,9 @@
+# Checkpoint gitleaks config: the default ruleset plus a rule for Clocked API keys.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "clocked-api-key"
+description = "Clocked API key (clk_...)"
+regex = '''\bclk_[A-Za-z0-9_\-]{16,}\b'''
+keywords = ["clk_"]
