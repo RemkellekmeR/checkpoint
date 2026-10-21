@@ -6,9 +6,11 @@ import type { Guard } from './guard/types.ts';
 import { HoldQueue } from './holds.ts';
 import { loadInbox, type InboxMessage } from './inbox.ts';
 import type { GuardPolicy } from './policy.ts';
+import { Outbox } from './outbox.ts';
 import type { Protect } from './protect/types.ts';
 import { checkHold, checkHoldInput } from './tools/check-hold.ts';
 import { readInboxMessage, readInboxMessageInput } from './tools/read-inbox-message.ts';
+import { sendReply, sendReplyInput } from './tools/send-reply.ts';
 
 /** The only MCP protocol revision this server negotiates. */
 export const PROTOCOL_VERSION = '2025-11-25';
@@ -35,6 +37,7 @@ export function buildMcpServer(deps: {
   guard: Guard;
   protect: Protect;
   holds: HoldQueue;
+  outbox: Outbox;
   messages: readonly InboxMessage[];
   policy?: GuardPolicy;
 }): McpServer {
@@ -64,6 +67,21 @@ export function buildMcpServer(deps: {
         structuredContent: out.structured,
         isError: out.isError,
       };
+    },
+  );
+
+  server.registerTool(
+    'send_reply',
+    {
+      title: 'Send reply (simulated)',
+      description:
+        'Reply to the requester of an inbox message. The body is anonymized by Protect and screened by Guard first. SIMULATED: the reply is recorded to an in-memory outbox and never actually sent. Replies Guard does not clearly allow are held for human review; if screening fails the reply is refused.',
+      inputSchema: sendReplyInput,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ message_id, body }) => {
+      const out = await sendReply(deps, message_id, body);
+      return { content: [{ type: 'text', text: out.text }], structuredContent: out.structured, isError: out.isError };
     },
   );
 
@@ -109,6 +127,7 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export interface CheckpointHttp {
   server: Server;
   holds: HoldQueue;
+  outbox: Outbox;
   sessions: Map<string, NodeStreamableHTTPServerTransport>;
   close(): Promise<void>;
 }
@@ -119,6 +138,7 @@ export interface CheckpointHttp {
  */
 export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
   const holds = new HoldQueue();
+  const outbox = new Outbox();
   const messages = opts.messages ?? loadInbox();
   const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
   const validateOrigin = originValidation(opts.allowedOrigins);
@@ -170,7 +190,7 @@ export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
-      const mcp = buildMcpServer({ guard: opts.guard, protect: opts.protect, holds, messages, ...(opts.policy ? { policy: opts.policy } : {}) });
+      const mcp = buildMcpServer({ guard: opts.guard, protect: opts.protect, holds, outbox, messages, ...(opts.policy ? { policy: opts.policy } : {}) });
       await mcp.connect(transport);
       await transport.handleRequest(req, res, body);
       return;
@@ -198,6 +218,7 @@ export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
   return {
     server,
     holds,
+    outbox,
     sessions,
     async close() {
       await Promise.allSettled([...sessions.values()].map((t) => t.close()));
