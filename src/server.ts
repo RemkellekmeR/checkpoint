@@ -2,14 +2,18 @@ import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { NodeStreamableHTTPServerTransport, hostHeaderValidation, originValidation } from '@modelcontextprotocol/node';
 import { LATEST_PROTOCOL_VERSION, McpServer, isInitializeRequest } from '@modelcontextprotocol/server';
+import { loadChanges, type ApprovedChange } from './changes.ts';
 import type { Guard } from './guard/types.ts';
 import { HoldQueue } from './holds.ts';
 import { loadInbox, type InboxMessage } from './inbox.ts';
+import type { Inspect } from './inspect/types.ts';
 import type { GuardPolicy } from './policy.ts';
 import { Outbox } from './outbox.ts';
 import type { Protect } from './protect/types.ts';
+import { SimulatedRunLog } from './simulator.ts';
 import { checkHold, checkHoldInput } from './tools/check-hold.ts';
 import { readInboxMessage, readInboxMessageInput } from './tools/read-inbox-message.ts';
+import { runRemediationScript, runRemediationScriptInput } from './tools/run-remediation-script.ts';
 import { sendReply, sendReplyInput } from './tools/send-reply.ts';
 
 /** The only MCP protocol revision this server negotiates. */
@@ -25,20 +29,25 @@ const MAX_BODY_BYTES = 1024 * 1024;
 export interface CheckpointOptions {
   guard: Guard;
   protect: Protect;
+  inspect: Inspect;
   /** Origin hostnames allowed to call /mcp; a request with any other Origin gets 403. */
   allowedOrigins: string[];
   /** Host header values allowed (DNS rebinding protection). Defaults to loopback names. */
   allowedHosts?: string[];
   messages?: readonly InboxMessage[];
+  changes?: readonly ApprovedChange[];
   policy?: GuardPolicy;
 }
 
 export function buildMcpServer(deps: {
   guard: Guard;
   protect: Protect;
+  inspect: Inspect;
   holds: HoldQueue;
   outbox: Outbox;
+  runs: SimulatedRunLog;
   messages: readonly InboxMessage[];
+  changes: readonly ApprovedChange[];
   policy?: GuardPolicy;
 }): McpServer {
   const server = new McpServer(
@@ -86,6 +95,21 @@ export function buildMcpServer(deps: {
   );
 
   server.registerTool(
+    'run_remediation_script',
+    {
+      title: 'Run remediation script (simulated)',
+      description:
+        'Propose a remediation script for an approved change ticket. Inspect assesses it against the ticket scope. The script is NEVER executed: an allowed script gets a simulated run, a suspicious one is queued for human approval, a malicious one is denied with the flagged lines. If Inspect fails, the script is refused.',
+      inputSchema: runRemediationScriptInput,
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ change_id, script }) => {
+      const out = await runRemediationScript(deps, change_id, script);
+      return { content: [{ type: 'text', text: out.text }], structuredContent: out.structured, isError: out.isError };
+    },
+  );
+
+  server.registerTool(
     'check_hold',
     {
       title: 'Check hold',
@@ -128,6 +152,7 @@ export interface CheckpointHttp {
   server: Server;
   holds: HoldQueue;
   outbox: Outbox;
+  runs: SimulatedRunLog;
   sessions: Map<string, NodeStreamableHTTPServerTransport>;
   close(): Promise<void>;
 }
@@ -139,7 +164,9 @@ export interface CheckpointHttp {
 export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
   const holds = new HoldQueue();
   const outbox = new Outbox();
+  const runs = new SimulatedRunLog();
   const messages = opts.messages ?? loadInbox();
+  const changes = opts.changes ?? loadChanges();
   const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
   const validateOrigin = originValidation(opts.allowedOrigins);
   const validateHost = hostHeaderValidation(opts.allowedHosts ?? ['localhost', '127.0.0.1', '[::1]']);
@@ -190,7 +217,17 @@ export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
       transport.onclose = () => {
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
-      const mcp = buildMcpServer({ guard: opts.guard, protect: opts.protect, holds, outbox, messages, ...(opts.policy ? { policy: opts.policy } : {}) });
+      const mcp = buildMcpServer({
+        guard: opts.guard,
+        protect: opts.protect,
+        inspect: opts.inspect,
+        holds,
+        outbox,
+        runs,
+        messages,
+        changes,
+        ...(opts.policy ? { policy: opts.policy } : {}),
+      });
       await mcp.connect(transport);
       await transport.handleRequest(req, res, body);
       return;
@@ -219,6 +256,7 @@ export function createCheckpointHttp(opts: CheckpointOptions): CheckpointHttp {
     server,
     holds,
     outbox,
+    runs,
     sessions,
     async close() {
       await Promise.allSettled([...sessions.values()].map((t) => t.close()));

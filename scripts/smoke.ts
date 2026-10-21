@@ -7,6 +7,7 @@
  * Run: npm run smoke
  */
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import assert from 'node:assert/strict';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -28,7 +29,7 @@ const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 const mcpUrl = `${base}/mcp`;
 
-const env: NodeJS.ProcessEnv = { ...process.env, CHECKPOINT_PORT: String(port), CHECKPOINT_HOST: '127.0.0.1', CHECKPOINT_GUARD: 'offline-stub', CHECKPOINT_PROTECT: 'offline-stub' };
+const env: NodeJS.ProcessEnv = { ...process.env, CHECKPOINT_PORT: String(port), CHECKPOINT_HOST: '127.0.0.1', CHECKPOINT_GUARD: 'offline-stub', CHECKPOINT_PROTECT: 'offline-stub', CHECKPOINT_INSPECT: 'offline-stub' };
 delete env.CLOCKED_API_KEY; // the smoke test never calls Clocked
 const child = spawn(process.execPath, ['--import', 'tsx', 'src/main.ts'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
 let logs = '';
@@ -73,6 +74,7 @@ try {
   }
   assert.match(logs, /OFFLINE STUB guard/);
   assert.match(logs, /OFFLINE STUB protect/);
+  assert.match(logs, /OFFLINE STUB inspect/);
   console.log(`checkpoint smoke: server on ${mcpUrl}`);
 
   // 1. Bad Origin is rejected before any MCP handling.
@@ -145,7 +147,7 @@ try {
     ok(`MCP client connected: session ${transport.sessionId}, protocol ${client.getNegotiatedProtocolVersion()}`);
 
     const { tools } = await client.listTools();
-    assert.deepEqual(tools.map((t) => t.name), ['read_inbox_message', 'send_reply', 'check_hold']);
+    assert.deepEqual(tools.map((t) => t.name), ['read_inbox_message', 'send_reply', 'run_remediation_script', 'check_hold']);
     ok(`tools/list -> [${tools.map((t) => t.name).join(', ')}] (no approve tool)`);
 
     const benign = await client.callTool({ name: 'read_inbox_message', arguments: { message_id: 'msg-1001' } });
@@ -192,6 +194,40 @@ try {
     assert.equal((held.structuredContent as any).status, 'pending');
     assert.equal((held.structuredContent as any).tool, 'send_reply');
     ok(`check_hold ${brs.hold_id} -> pending`);
+
+    const docScript = JSON.parse(readFileSync(new URL('../fixtures/docs/script.request.json', import.meta.url), 'utf8')).script as string;
+    const denied = await client.callTool({ name: 'run_remediation_script', arguments: { change_id: 'CHG-DEMO-204', script: docScript } });
+    const ds = denied.structuredContent as any;
+    assert.equal(ds.action, 'deny');
+    assert.equal(denied.isError, true);
+    assert.equal(ds.evidence[0].line, 'Set-MpPreference -DisableRealtimeMonitoring $true');
+    assert.equal(ds.evidence[0].line_number, 5);
+    ok(`run_remediation_script docs example -> deny (${ds.category}, evidence line ${ds.evidence[0].line_number})`);
+
+    const allowed = await client.callTool({
+      name: 'run_remediation_script',
+      arguments: { change_id: 'CHG-DEMO-204', script: 'Get-Service -Name Spooler\nRestart-Service -Name Spooler\nGet-Printer | Select-Object Name, PrinterStatus' },
+    });
+    const as = allowed.structuredContent as any;
+    assert.equal(as.action, 'allow');
+    assert.equal(as.executed, false);
+    assert.match((allowed.content as { type: string; text: string }[])[0]!.text, /SIMULATED RUN .*Nothing was executed/s);
+    ok(`run_remediation_script spooler-only -> allow, simulated run ${as.simulated_run_id}, executed=false`);
+
+    const queued = await client.callTool({
+      name: 'run_remediation_script',
+      arguments: { change_id: 'CHG-1001', script: 'Unlock-ADAccount -Identity pnair\nnet localgroup Administrators pnair /add' },
+    });
+    const qs = queued.structuredContent as any;
+    assert.equal(qs.action, 'hold');
+    const qh = await client.callTool({ name: 'check_hold', arguments: { hold_id: qs.hold_id } });
+    assert.equal((qh.structuredContent as any).status, 'pending');
+    assert.equal((qh.structuredContent as any).tool, 'run_remediation_script');
+    ok(`run_remediation_script group change -> hold ${qs.hold_id}; check_hold -> pending`);
+
+    const unknownChange = await client.callTool({ name: 'run_remediation_script', arguments: { change_id: 'CHG-NOPE', script: 'Get-Date' } });
+    assert.equal((unknownChange.structuredContent as any).action, 'unknown_change');
+    ok('run_remediation_script unknown change id -> refused, not assessed');
 
     const missing = await client.callTool({ name: 'check_hold', arguments: { hold_id: 'hold-00000000' } });
     assert.equal(missing.isError, true);
