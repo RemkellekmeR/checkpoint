@@ -11,7 +11,7 @@
   },
   "scripts": {
     "start": "tsx src/main.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p convex/tsconfig.json",
     "test": "node --import tsx --test \"test/**/*.test.ts\"",
     "smoke": "node --import tsx scripts/smoke.ts",
     "check": "npm run typecheck && npm test && npm run smoke",
